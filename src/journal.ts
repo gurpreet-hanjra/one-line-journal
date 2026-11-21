@@ -45,10 +45,23 @@ function parseDay(day: string): Date | null {
     return valid ? date : null
 }
 
-function countCharacters(text: string): number {
+/** Counts user-perceived characters (grapheme clusters), so 👨‍👩‍👧 counts as 1. */
+export function countCharacters(text: string): number {
     let count = 0
     for (const _ of graphemes.segment(text)) count++
     return count
+}
+
+/** Cuts `text` to at most `max` user-perceived characters without splitting an emoji. */
+export function truncateToCharacters(text: string, max: number): string {
+    let out = ''
+    let count = 0
+    for (const { segment } of graphemes.segment(text)) {
+        if (count === max) break
+        out += segment
+        count++
+    }
+    return out
 }
 
 function isMood(value: unknown): value is Mood {

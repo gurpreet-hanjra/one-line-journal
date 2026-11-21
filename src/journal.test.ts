@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getWeekStart, saveJournal, toLocalDay, weekStart } from './journal'
+import { countCharacters, getWeekStart, saveJournal, toLocalDay, truncateToCharacters, weekStart } from './journal'
 import type { Journal, Mood } from './journal'
 
 // Local times in America/Los_Angeles (pinned in vite.config.ts).
@@ -303,5 +303,23 @@ describe('7. weeks start on Monday', () => {
   it('crosses month boundaries', () => {
     // 2026-11-01 is a Sunday -> week started Monday 2026-10-26
     expect(getWeekStart('2026-11-01')).toBe('2026-10-26')
+  })
+})
+
+describe('character helpers (shared by validation and the UI counter)', () => {
+  it('countCharacters counts emojis as one each', () => {
+    expect(countCharacters('')).toBe(0)
+    expect(countCharacters('abc')).toBe(3)
+    expect(countCharacters('😀👍🏽👨‍👩‍👧')).toBe(3)
+  })
+
+  it('truncateToCharacters keeps at most max characters', () => {
+    expect(truncateToCharacters('abcdef', 3)).toBe('abc')
+    expect(truncateToCharacters('abc', 5)).toBe('abc')
+  })
+
+  it('truncateToCharacters never splits an emoji', () => {
+    expect(truncateToCharacters('a👨‍👩‍👧b', 2)).toBe('a👨‍👩‍👧')
+    expect(truncateToCharacters('😀'.repeat(301), 300)).toBe('😀'.repeat(300))
   })
 })
