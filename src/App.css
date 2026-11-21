@@ -30,6 +30,23 @@
   font-weight: 400;
 }
 
+.journal-date::before {
+  content: '· ';
+}
+
+.journal-day-notice {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.journal-day-notice:not(:empty) {
+  color: var(--text-h);
+  background: var(--accent-bg);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+}
+
 .journal-form textarea {
   font: inherit;
   color: var(--text-h);

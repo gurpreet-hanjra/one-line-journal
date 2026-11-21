@@ -1,6 +1,8 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import './App.css'
+import { dayChangeMessage, draftForDay, formatDay, syncDraftToToday, watchTabReturn } from './dayChange'
+import type { DayChangeNotice, Draft } from './dayChange'
 import { countCharacters, MAX_TEXT_LENGTH, saveJournal, toLocalDay, truncateToCharacters } from './journal'
 import type { Journal, Mood } from './journal'
 import { createLocalStorageStore } from './storage'
@@ -27,18 +29,25 @@ function remainingLabel(remaining: number): string {
 
 function App({ store = defaultStore }: { store?: JournalStore }) {
   const [journal, setJournal] = useState<Journal | null>(null)
-  const [text, setText] = useState('')
-  const [mood, setMood] = useState<Mood | ''>('')
+  const [draft, setDraft] = useState<Draft>(() => draftForDay({}, toLocalDay(new Date())))
+  const [dayNotice, setDayNotice] = useState<DayChangeNotice | null>(null)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [announcement, setAnnouncement] = useState('')
-  const [today, setToday] = useState(() => toLocalDay(new Date()))
+
+  // Latest values for the tab-return listener, which is subscribed once.
+  const draftRef = useRef(draft)
+  const journalRef = useRef(journal)
+  useEffect(() => {
+    draftRef.current = draft
+    journalRef.current = journal
+  })
 
   const ids = useId()
   const textId = `${ids}-text`
   const countId = `${ids}-count`
   const errorId = `${ids}-error`
 
-  const remaining = MAX_TEXT_LENGTH - countCharacters(text)
+  const remaining = MAX_TEXT_LENGTH - countCharacters(draft.text)
   const loading = journal === null
 
   // Load once; prefill today's entry so saving edits it instead of starting blank.
@@ -48,11 +57,7 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
       (loaded) => {
         if (cancelled) return
         setJournal(loaded)
-        const entry = loaded[toLocalDay(new Date())]
-        if (entry) {
-          setText(entry.text)
-          setMood(entry.mood)
-        }
+        setDraft(draftForDay(loaded, toLocalDay(new Date())))
       },
       () => {
         if (cancelled) return
@@ -65,27 +70,43 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
     }
   }, [store])
 
+  // When the user comes back to the tab on a new day, switch to that day and clear the draft.
+  useEffect(() => {
+    return watchTabReturn(() => {
+      const current = journalRef.current
+      if (!current) return
+      const sync = syncDraftToToday(draftRef.current, current, new Date())
+      if (!sync.changed) return
+      setDraft(sync.draft)
+      setDayNotice(sync.notice)
+      setStatus({ kind: 'idle' })
+    })
+  }, [])
+
   useEffect(() => {
     const timer = setTimeout(() => setAnnouncement(remainingLabel(remaining)), ANNOUNCE_DELAY_MS)
     return () => clearTimeout(timer)
   }, [remaining])
 
   function handleTextChange(e: ChangeEvent<HTMLTextAreaElement>) {
-    setText(truncateToCharacters(e.target.value, MAX_TEXT_LENGTH))
+    const text = truncateToCharacters(e.target.value, MAX_TEXT_LENGTH)
+    setDraft((d) => ({ ...d, text }))
     setStatus({ kind: 'idle' })
   }
 
   function handleMoodChange(e: ChangeEvent<HTMLInputElement>) {
-    setMood(e.target.value as Mood)
+    const mood = e.target.value as Mood
+    setDraft((d) => ({ ...d, mood }))
     setStatus({ kind: 'idle' })
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!journal) return
-    const now = new Date()
-    const day = toLocalDay(now)
-    const result = saveJournal(journal, text, mood as Mood, day, now)
+    // Save to the day the user sees. Past days are allowed, so a tab left open
+    // past midnight still saves where the user expects.
+    const { day } = draft
+    const result = saveJournal(journal, draft.text, draft.mood as Mood, day, new Date())
     if (!result.ok) {
       setStatus({ kind: 'error', message: result.error })
       return
@@ -97,8 +118,8 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
       return
     }
     setJournal(result.journal)
-    setToday(day) // the tab may have stayed open past midnight
-    setText(result.journal[day].text)
+    setDraft(draftForDay(result.journal, day))
+    setDayNotice(null)
     setStatus({ kind: 'saved' })
   }
 
@@ -109,13 +130,16 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
       <h1>One-line journal</h1>
       <form className="journal-form" onSubmit={handleSubmit} noValidate>
         <label htmlFor={textId} className="journal-label">
-          How was today? <span className="journal-date">({today})</span>
+          How was today? <span className="journal-date">{formatDay(draft.day)}</span>
         </label>
+        <p role="status" className="journal-day-notice">
+          {dayNotice ? dayChangeMessage(dayNotice) : ''}
+        </p>
         <textarea
           id={textId}
           name="text"
           rows={3}
-          value={text}
+          value={draft.text}
           onChange={handleTextChange}
           disabled={loading}
           required
@@ -137,7 +161,7 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
                 type="radio"
                 name="mood"
                 value={option.value}
-                checked={mood === option.value}
+                checked={draft.mood === option.value}
                 onChange={handleMoodChange}
                 required
               />
