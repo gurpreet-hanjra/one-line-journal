@@ -25,7 +25,8 @@ export function draftForDay(journal: Journal, day: string): Draft {
   return entry ? { day, text: entry.text, mood: entry.mood } : { day, text: '', mood: '' }
 }
 
-function hasUnsavedChanges(draft: Draft, journal: Journal): boolean {
+/** True if the draft has non-blank text or a mood that differs from what is saved for its day. */
+export function hasUnsavedChanges(draft: Draft, journal: Journal): boolean {
   if (draft.text.trim() === '') return false
   const saved = journal[draft.day]
   return !saved || saved.text !== draft.text || saved.mood !== draft.mood
@@ -50,6 +51,11 @@ export function dayChangeMessage(notice: DayChangeNotice): string {
   return notice.discardedDraft
     ? `${now} Your unsaved entry for ${formatDay(notice.from)} was cleared.`
     : now
+}
+
+/** Note shown when choosing another day drops unsaved changes on `from`. */
+export function switchDayMessage(from: string): string {
+  return `Your unsaved entry for ${formatDay(from)} was cleared.`
 }
 
 /**

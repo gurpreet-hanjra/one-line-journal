@@ -1,17 +1,28 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import './App.css'
-import { dayChangeMessage, draftForDay, formatDay, syncDraftToToday, watchTabReturn } from './dayChange'
-import type { DayChangeNotice, Draft } from './dayChange'
+import {
+  dayChangeMessage, draftForDay, formatDay, hasUnsavedChanges, switchDayMessage, syncDraftToToday, watchTabReturn,
+} from './dayChange'
+import type { Draft } from './dayChange'
 import { countCharacters, MAX_TEXT_LENGTH, saveJournal, toLocalDay, truncateToCharacters } from './journal'
 import type { Journal, Mood } from './journal'
 import { createLocalStorageStore } from './storage'
 import type { JournalStore } from './storage'
+import { describeCell, getWeekStrip, shortWeekday } from './weekStrip'
+import type { DayCell } from './weekStrip'
 
 const MOOD_OPTIONS: { value: Mood, label: string, emoji: string }[] = [
   { value: 'happy', label: 'Happy', emoji: '😊' },
   { value: 'sad', label: 'Sad', emoji: '😔' },
 ]
+const MOOD_EMOJI: Record<Mood, string> = { happy: '😊', sad: '😔' }
+
+function cellIcon(cell: DayCell): string {
+  if (cell.kind === 'written') return MOOD_EMOJI[cell.entry.mood]
+  if (cell.kind === 'missed') return '✏️'
+  return ''
+}
 
 // Screen readers hear the remaining count after typing pauses, not on every keystroke.
 const ANNOUNCE_DELAY_MS = 600
@@ -29,18 +40,23 @@ function remainingLabel(remaining: number): string {
 
 function App({ store = defaultStore }: { store?: JournalStore }) {
   const [journal, setJournal] = useState<Journal | null>(null)
-  const [draft, setDraft] = useState<Draft>(() => draftForDay({}, toLocalDay(new Date())))
-  const [dayNotice, setDayNotice] = useState<DayChangeNotice | null>(null)
+  // `today` is the real local day; `draft.day` is the day loaded in the form (today or a past day).
+  const [today, setToday] = useState(() => toLocalDay(new Date()))
+  const [draft, setDraft] = useState<Draft>(() => draftForDay({}, today))
+  const [notice, setNotice] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [announcement, setAnnouncement] = useState('')
 
   // Latest values for the tab-return listener, which is subscribed once.
   const draftRef = useRef(draft)
   const journalRef = useRef(journal)
+  const todayRef = useRef(today)
   useEffect(() => {
     draftRef.current = draft
     journalRef.current = journal
+    todayRef.current = today
   })
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const ids = useId()
   const textId = `${ids}-text`
@@ -56,8 +72,10 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
     store.load().then(
       (loaded) => {
         if (cancelled) return
+        const loadDay = toLocalDay(new Date())
         setJournal(loaded)
-        setDraft(draftForDay(loaded, toLocalDay(new Date())))
+        setToday(loadDay)
+        setDraft(draftForDay(loaded, loadDay))
       },
       () => {
         if (cancelled) return
@@ -70,15 +88,22 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
     }
   }, [store])
 
-  // When the user comes back to the tab on a new day, switch to that day and clear the draft.
+  // When the user comes back to the tab on a new day, move the week strip to it.
+  // If the form was on "today", follow it to the new today and clear the draft;
+  // a past day the user chose stays put.
   useEffect(() => {
     return watchTabReturn(() => {
       const current = journalRef.current
       if (!current) return
-      const sync = syncDraftToToday(draftRef.current, current, new Date())
+      const now = new Date()
+      const previousToday = todayRef.current
+      if (toLocalDay(now) === previousToday) return
+      setToday(toLocalDay(now))
+      if (draftRef.current.day !== previousToday) return
+      const sync = syncDraftToToday(draftRef.current, current, now)
       if (!sync.changed) return
       setDraft(sync.draft)
-      setDayNotice(sync.notice)
+      setNotice(dayChangeMessage(sync.notice))
       setStatus({ kind: 'idle' })
     })
   }, [])
@@ -100,6 +125,17 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
     setStatus({ kind: 'idle' })
   }
 
+  function handleSelectDay(day: string) {
+    if (!journal) return
+    if (day !== draft.day) {
+      const lost = hasUnsavedChanges(draft, journal)
+      setDraft(draftForDay(journal, day))
+      setNotice(lost ? switchDayMessage(draft.day) : null)
+      setStatus({ kind: 'idle' })
+    }
+    textareaRef.current?.focus()
+  }
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!journal) return
@@ -119,23 +155,26 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
     }
     setJournal(result.journal)
     setDraft(draftForDay(result.journal, day))
-    setDayNotice(null)
+    setNotice(null)
     setStatus({ kind: 'saved' })
   }
 
   const hasError = status.kind === 'error'
+  const week = getWeekStrip(journal ?? {}, today, today)
 
   return (
     <main className="journal">
       <h1>One-line journal</h1>
       <form className="journal-form" onSubmit={handleSubmit} noValidate>
         <label htmlFor={textId} className="journal-label">
-          How was today? <span className="journal-date">{formatDay(draft.day)}</span>
+          {draft.day === today ? 'How was today?' : 'How was your day?'}{' '}
+          <span className="journal-date">{formatDay(draft.day)}</span>
         </label>
         <p role="status" className="journal-day-notice">
-          {dayNotice ? dayChangeMessage(dayNotice) : ''}
+          {notice ?? ''}
         </p>
         <textarea
+          ref={textareaRef}
           id={textId}
           name="text"
           rows={3}
@@ -179,6 +218,28 @@ function App({ store = defaultStore }: { store?: JournalStore }) {
           {status.kind === 'saved' ? 'Saved.' : ''}
         </div>
       </form>
+
+      <hr className="journal-separator" />
+
+      <div role="group" aria-label="This week" className="week-strip">
+        {week.map((cell) => (
+          <button
+            key={cell.day}
+            type="button"
+            data-day={cell.day}
+            className={`week-day is-${cell.kind}`}
+            aria-label={describeCell(cell, today)}
+            aria-pressed={cell.day === draft.day}
+            aria-current={cell.day === today ? 'date' : undefined}
+            disabled={loading || cell.kind === 'future'}
+            onClick={() => handleSelectDay(cell.day)}
+          >
+            <span aria-hidden="true" className="week-day-name">{shortWeekday(cell.day)}</span>
+            <span aria-hidden="true" className="week-day-num">{Number(cell.day.slice(8))}</span>
+            <span aria-hidden="true" className="week-day-icon">{cellIcon(cell)}</span>
+          </button>
+        ))}
+      </div>
     </main>
   )
 }

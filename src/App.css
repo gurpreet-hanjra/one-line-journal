@@ -153,3 +153,66 @@
   white-space: nowrap;
   border: 0;
 }
+
+.journal-separator {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0 1.5rem;
+}
+
+.week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.4rem;
+}
+
+.week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-height: 4.5rem;
+  padding: 0.4rem 0.2rem;
+  font: inherit;
+  color: var(--text-h);
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.week-day-name {
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.week-day-num {
+  font-weight: 600;
+}
+
+.week-day-icon {
+  min-height: 1.3em;
+}
+
+.week-day[aria-current='date'] {
+  border-color: var(--accent-border);
+}
+
+.week-day[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.week-day:disabled {
+  cursor: not-allowed;
+}
+
+.week-day.is-future {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+.week-day:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}

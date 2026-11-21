@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { dayChangeMessage, draftForDay, formatDay, syncDraftToToday, watchTabReturn } from './dayChange'
+import { dayChangeMessage, draftForDay, formatDay, hasUnsavedChanges, switchDayMessage, syncDraftToToday, watchTabReturn } from './dayChange'
 import type { Draft } from './dayChange'
 import { saveJournal } from './journal'
 import type { Journal } from './journal'
@@ -145,5 +145,33 @@ describe('watchTabReturn', () => {
     setVisibility('visible')
     win.dispatchEvent(new Event('focus'))
     expect(onReturn).not.toHaveBeenCalled()
+  })
+})
+
+describe('hasUnsavedChanges', () => {
+  const journal = journalWith('saved text', SUNDAY, SUNDAY_NIGHT, 'sad')
+
+  it('is false for a blank or whitespace-only draft', () => {
+    expect(hasUnsavedChanges({ day: MONDAY, text: '', mood: '' }, {})).toBe(false)
+    expect(hasUnsavedChanges({ day: MONDAY, text: '  ', mood: 'happy' }, {})).toBe(false)
+  })
+
+  it('is true for new text on a day with no entry', () => {
+    expect(hasUnsavedChanges({ day: MONDAY, text: 'new', mood: '' }, {})).toBe(true)
+  })
+
+  it('is false when the draft matches the saved entry', () => {
+    expect(hasUnsavedChanges({ day: SUNDAY, text: 'saved text', mood: 'sad' }, journal)).toBe(false)
+  })
+
+  it('is true when the text or only the mood differs from the saved entry', () => {
+    expect(hasUnsavedChanges({ day: SUNDAY, text: 'saved text!', mood: 'sad' }, journal)).toBe(true)
+    expect(hasUnsavedChanges({ day: SUNDAY, text: 'saved text', mood: 'happy' }, journal)).toBe(true)
+  })
+})
+
+describe('switchDayMessage', () => {
+  it('names the day whose unsaved entry was cleared', () => {
+    expect(switchDayMessage(SUNDAY)).toBe('Your unsaved entry for Sunday, November 22 was cleared.')
   })
 })
